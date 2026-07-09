@@ -19,7 +19,6 @@ function maloja(context) {
 }
 
 
-
 maloja.prototype.onVolumioStart = function()
 {
 	var self = this;
@@ -32,28 +31,139 @@ maloja.prototype.onVolumioStart = function()
 
 maloja.prototype.onStart = function() {
     var self = this;
-	var defer=libQ.defer();
+    var defer = libQ.defer();
 
+    self.active = true;
+    self.currentTrack = null;  // { artist, title, duration }
+    self.scrobbled = false;    // whether the current track has been scrobbled
+    self.playStart = null;     // timestamp (ms) when playback last started/resumed
+    self.playedMs = 0;         // accumulated playback time in ms for the current track
 
-	// Once the Plugin has successfull started resolve the promise
-	defer.resolve();
+    self.stateCallback = function(state) {
+        self.onStateChange(state);
+    };
+    self.commandRouter.addCallback('volumioPushState', self.stateCallback);
 
+    // Check every minute whether the current track qualifies for scrobbling
+    self.scrobbleInterval = setInterval(function() {
+        self.checkScrobble();
+    }, 60000);
+
+    defer.resolve();
     return defer.promise;
 };
 
 maloja.prototype.onStop = function() {
     var self = this;
-    var defer=libQ.defer();
+    var defer = libQ.defer();
 
-    // Once the Plugin has successfull stopped resolve the promise
+    self.active = false;
+
+    if (self.scrobbleInterval) {
+        clearInterval(self.scrobbleInterval);
+        self.scrobbleInterval = null;
+    }
+
     defer.resolve();
-
     return libQ.resolve();
 };
 
 maloja.prototype.onRestart = function() {
     var self = this;
     // Optional, use if you need it
+};
+
+maloja.prototype.onStateChange = function(state) {
+    var self = this;
+    if (!self.active) return;
+
+    var artist = state.artist || '';
+    var title = state.title || '';
+    var isSameTrack = self.currentTrack &&
+        self.currentTrack.artist === artist &&
+        self.currentTrack.title === title;
+
+    if (!isSameTrack) {
+        // A different track has started (or playback stopped) — scrobble the previous
+        // track if it hasn't been scrobbled yet and played long enough (at least 30 s,
+        // consistent with standard scrobbling conventions).
+        if (self.currentTrack && !self.scrobbled) {
+            var totalPlayed = self.playedMs + (self.playStart ? Date.now() - self.playStart : 0);
+            if (totalPlayed >= 30000) {
+                self.sendScrobble(self.currentTrack, Math.floor(totalPlayed / 1000));
+            }
+        }
+
+        if (artist || title) {
+            self.currentTrack = { artist: artist, title: title, duration: state.duration || 0 };
+            self.scrobbled = false;
+            self.playedMs = 0;
+            self.playStart = (state.status === 'play') ? Date.now() : null;
+        } else {
+            self.currentTrack = null;
+            self.scrobbled = false;
+            self.playedMs = 0;
+            self.playStart = null;
+        }
+    } else {
+        // Same track — update accumulated play time based on play/pause transitions
+        if (state.status === 'play' && !self.playStart) {
+            self.playStart = Date.now();
+        } else if (state.status !== 'play' && self.playStart) {
+            self.playedMs += Date.now() - self.playStart;
+            self.playStart = null;
+        }
+    }
+};
+
+// Called every minute; scrobbles if the track has been playing for 4+ minutes total.
+maloja.prototype.checkScrobble = function() {
+    var self = this;
+    if (!self.active || !self.currentTrack || self.scrobbled || !self.playStart) return;
+
+    var totalPlayed = self.playedMs + (Date.now() - self.playStart);
+    if (totalPlayed >= 240000) {
+        self.sendScrobble(self.currentTrack, Math.floor(totalPlayed / 1000));
+    }
+};
+
+maloja.prototype.sendScrobble = function(track, playedSeconds) {
+    var self = this;
+    var url = self.config.get('url');
+    var apiKey = self.config.get('api_key');
+
+    if (!url || !apiKey) {
+        self.logger.warn('Maloja Scrobbler: URL or API key not configured, skipping scrobble');
+        return;
+    }
+
+    self.scrobbled = true;
+
+    var endpoint = url.replace(/\/$/, '') + '/apis/mlj_1/newscrobble?key=' + encodeURIComponent(apiKey);
+    var body = JSON.stringify({
+        artist: track.artist,
+        title: track.title,
+        duration: playedSeconds,
+        length: track.duration
+    });
+
+    fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            self.logger.error('Maloja Scrobbler: Scrobble failed with HTTP ' + response.status);
+            self.scrobbled = false;
+        } else {
+            self.logger.info('Maloja Scrobbler: Scrobbled "' + track.title + '" by ' + track.artist);
+        }
+    })
+    .catch(function(err) {
+        self.logger.error('Maloja Scrobbler: Error sending scrobble: ' + err.message);
+        self.scrobbled = false;
+    });
 };
 
 
@@ -88,7 +198,10 @@ maloja.prototype.getConfigurationFiles = function() {
 
 maloja.prototype.setUIConfig = function(data) {
 	var self = this;
-	//Perform your installation tasks here
+	var defer=libQ.defer();
+	self.config.set('url', data['url']);
+	self.config.set('api_key', data['api_key']);
+    defer.resolve();
 };
 
 maloja.prototype.getConf = function(varName) {
@@ -102,166 +215,3 @@ maloja.prototype.setConf = function(varName, varValue) {
 };
 
 
-
-// Playback Controls ---------------------------------------------------------------------------------------
-// If your plugin is not a music_sevice don't use this part and delete it
-
-
-maloja.prototype.addToBrowseSources = function () {
-
-	// Use this function to add your music service plugin to music sources
-    //var data = {name: 'Spotify', uri: 'spotify',plugin_type:'music_service',plugin_name:'spop'};
-    this.commandRouter.volumioAddToBrowseSources(data);
-};
-
-maloja.prototype.handleBrowseUri = function (curUri) {
-    var self = this;
-
-    //self.commandRouter.logger.info(curUri);
-    var response;
-
-
-    return response;
-};
-
-
-
-// Define a method to clear, add, and play an array of tracks
-maloja.prototype.clearAddPlayTrack = function(track) {
-	var self = this;
-	self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::clearAddPlayTrack');
-
-	self.commandRouter.logger.info(JSON.stringify(track));
-
-	return self.sendSpopCommand('uplay', [track.uri]);
-};
-
-maloja.prototype.seek = function (timepos) {
-    this.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::seek to ' + timepos);
-
-    return this.sendSpopCommand('seek '+timepos, []);
-};
-
-// Stop
-maloja.prototype.stop = function() {
-	var self = this;
-	self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::stop');
-
-
-};
-
-// Spop pause
-maloja.prototype.pause = function() {
-	var self = this;
-	self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::pause');
-
-
-};
-
-// Get state
-maloja.prototype.getState = function() {
-	var self = this;
-	self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::getState');
-
-
-};
-
-//Parse state
-maloja.prototype.parseState = function(sState) {
-	var self = this;
-	self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::parseState');
-
-	//Use this method to parse the state and eventually send it with the following function
-};
-
-// Announce updated State
-maloja.prototype.pushState = function(state) {
-	var self = this;
-	self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'maloja::pushState');
-
-	return self.commandRouter.servicePushState(state, self.servicename);
-};
-
-
-maloja.prototype.explodeUri = function(uri) {
-	var self = this;
-	var defer=libQ.defer();
-
-	// Mandatory: retrieve all info for a given URI
-
-	return defer.promise;
-};
-
-maloja.prototype.getAlbumArt = function (data, path) {
-
-	var artist, album;
-
-	if (data != undefined && data.path != undefined) {
-		path = data.path;
-	}
-
-	var web;
-
-	if (data != undefined && data.artist != undefined) {
-		artist = data.artist;
-		if (data.album != undefined)
-			album = data.album;
-		else album = data.artist;
-
-		web = '?web=' + nodetools.urlEncode(artist) + '/' + nodetools.urlEncode(album) + '/large'
-	}
-
-	var url = '/albumart';
-
-	if (web != undefined)
-		url = url + web;
-
-	if (web != undefined && path != undefined)
-		url = url + '&';
-	else if (path != undefined)
-		url = url + '?';
-
-	if (path != undefined)
-		url = url + 'path=' + nodetools.urlEncode(path);
-
-	return url;
-};
-
-
-
-
-
-maloja.prototype.search = function (query) {
-	var self=this;
-	var defer=libQ.defer();
-
-	// Mandatory, search. You can divide the search in sections using following functions
-
-	return defer.promise;
-};
-
-maloja.prototype._searchArtists = function (results) {
-
-};
-
-maloja.prototype._searchAlbums = function (results) {
-
-};
-
-maloja.prototype._searchPlaylists = function (results) {
-
-
-};
-
-maloja.prototype._searchTracks = function (results) {
-
-};
-
-maloja.prototype.goto=function(data){
-    var self=this
-    var defer=libQ.defer()
-
-// Handle go to artist and go to album function
-
-     return defer.promise;
-};

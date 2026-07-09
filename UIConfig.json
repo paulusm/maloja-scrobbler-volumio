@@ -7,8 +7,8 @@
       "id": "section_account",
       "element": "section",
       "label": "Maloja account",
-      "icon": "fa-plug",
-      "onSave": {"type":"controller", "endpoint":"music_service/maloja", "method":"saveMalojaAccount"},
+      "icon": "fa-compact-disc",
+      "onSave": {"type":"controller", "endpoint":"music_service/maloja", "method":"setUIConfig"},
       "saveButton": {
         "label": "Save",
         "data": [
