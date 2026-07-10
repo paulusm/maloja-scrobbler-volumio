@@ -180,7 +180,8 @@ maloja.prototype.getUIConfig = function() {
         __dirname + '/UIConfig.json')
         .then(function(uiconf)
         {
-
+            uiconf.sections[0].content[0].value = self.config.get('url');
+		    uiconf.sections[0].content[1].value = self.config.get('api_key');		
 
             defer.resolve(uiconf);
         })
@@ -198,10 +199,20 @@ maloja.prototype.getConfigurationFiles = function() {
 
 maloja.prototype.setUIConfig = function(data) {
 	var self = this;
+	
+	self.logger.info("Updating UI config");
+	var uiconf = fs.readJsonSync(__dirname + '/UIConfig.json');
+	
+	return libQ.resolve();
+};
+
+maloja.prototype.saveConfig = function(data) {
+	var self = this;
 	var defer=libQ.defer();
 	self.config.set('url', data['url']);
 	self.config.set('api_key', data['api_key']);
     defer.resolve();
+    mixcloud.toast('success', "settings saved");
 };
 
 maloja.prototype.getConf = function(varName) {
