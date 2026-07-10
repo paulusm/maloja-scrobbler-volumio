@@ -11,7 +11,7 @@
 	"repository": "https://github.com/paulusm/maloja-scrobbler-volumio",
 	"volumio_info": {
 		"prettyName": "Maloja Scrobbler for Volumio",
-		"icon": "fa-compact-disc",
+		"icon": "fa-bookmark",
 		"plugin_type": "music_service",
 		"architectures": [
 			"amd64",

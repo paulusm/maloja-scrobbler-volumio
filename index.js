@@ -158,6 +158,7 @@ maloja.prototype.sendScrobble = function(track, playedSeconds) {
             self.scrobbled = false;
         } else {
             self.logger.info('Maloja Scrobbler: Scrobbled "' + track.title + '" by ' + track.artist);
+            self.commandRouter.pushToastMessage('success', "Maloja Plugin", 'Maloja Scrobbler: Scrobbled "' + track.title + '" by ' + track.artist);
         }
     })
     .catch(function(err) {
@@ -212,7 +213,7 @@ maloja.prototype.saveConfig = function(data) {
 	self.config.set('url', data['url']);
 	self.config.set('api_key', data['api_key']);
     defer.resolve();
-    mixcloud.toast('success', "settings saved");
+    self.commandRouter.pushToastMessage('success', "Maloja Plugin", "Settings Saved");
 };
 
 maloja.prototype.getConf = function(varName) {

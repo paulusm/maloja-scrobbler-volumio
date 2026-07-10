@@ -7,7 +7,7 @@
       "id": "section_account",
       "element": "section",
       "label": "Maloja account",
-      "icon": "fa-compact-disc",
+      "icon": "fa-bookmark",
       "onSave": {"type":"controller", "endpoint":"music_service/maloja", "method":"saveConfig"},
       "saveButton": {
         "label": "Save",
@@ -21,8 +21,8 @@
           "id": "url",
           "type":"text",
           "element": "input",
-          "doc": "This is the full URL to your Maloja server",
-          "label": "Maloja URL",
+          "doc": "This is the URL to your Maloja server, eg http://maloja.local:8080",
+          "label": "Maloja Base URL",
           "value": "https://"
         },
         {
